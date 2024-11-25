@@ -159,14 +159,14 @@ void free_hash_table(HashTable* hashTable) {
 
 // Print the hash table
 void print_hash_table(HashTable* hashTable) {
-    printf("Hash Table:\n");
+    fprintf(stderr, "Hash Table:\n");
     for (int i = 0; i < hashTable->tableSize; i++) {
-        printf("Bucket %d: ", i);
+        fprintf(stderr, "Bucket %d: ", i);
         HashNode* current = hashTable->bucket[i];
         while (current) {
-            printf("(%s: %d) -> ", current->word, current->freq);
+            fprintf(stderr, "(%s: %d) -> ", current->word, current->freq);
             current = current->next;
         }
-        printf("NULL\n");
+        fprintf(stderr, "NULL\n");
     }
 }

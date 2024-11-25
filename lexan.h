@@ -6,6 +6,8 @@
 #define BUFFER_SIZE 1024
 
 // Function prototypes
-void fork_builders(int num_builders);
+pid_t* fork_builders(int num_builders);
+
+pid_t *fork_splitters(int num_splitters, int num_builders, int splitter_pipes[num_splitters][2], char *input_file, char *exclude_file, int num_lines);
 
 #endif // LEXAN_H
