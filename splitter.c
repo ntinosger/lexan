@@ -47,7 +47,11 @@ void process_chunk(FILE *input, HashTable *hashTable, long start, long end, int 
             // Remove trailing newline characters
             line[strcspn(line, "\n")] = '\0';
 
+            fprintf(stderr, "Processing line: %s\n\n", line);
+
             char *token = strtok(line, " \t"); // Delimiters: space and tab
+
+            fprintf(stderr, "Processing token: %s\n\n", token);
             while (token != NULL) {
                 // Remove punctuation and convert to lowercase
                 char clean_word[MAX_WORD_LENGTH] = "";
@@ -64,7 +68,7 @@ void process_chunk(FILE *input, HashTable *hashTable, long start, long end, int 
                     if (!search_hash_table(hashTable, clean_word)) {
                         int builder_index = hash_code(clean_word); // Map word to builder
                         fprintf(stderr, "Cleaned word: %s with builder index: %d\n", clean_word, builder_index);
-                        write(builder_pipes[builder_index][1], clean_word, strlen(clean_word) + 1); // Send word to the builder
+                        // write(builder_pipes[builder_index][1], clean_word, strlen(clean_word) + 1); // Send word to the builder
 
 
                     } else {
@@ -84,8 +88,6 @@ void process_chunk(FILE *input, HashTable *hashTable, long start, long end, int 
         }
         current_line++;
     }
-    // Send results via pipe
-    // write(pipe_fd, word_counts, sizeof(word_counts));
 }
 
 int main(int argc, char *argv[]) {
