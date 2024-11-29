@@ -5,17 +5,8 @@
 #include <unistd.h>
 #include <signal.h>
 
-#include "hashTable.h"
+#include "splitter.h"
 #include "lexan.h"
-
-// Maximum word length
-#define MAX_LINE_LENGTH 1024
-#define MAX_WORD_LENGTH 50
-
-
-// Access builder pipes and num_builders
-extern int **builder_pipes;
-extern int num_builders;
 
 void load_exclusion_to_hash_table(FILE *excludeFile, HashTable *excludeHashTable) {
     char line[MAX_LINE_LENGTH];
@@ -35,8 +26,7 @@ void load_exclusion_to_hash_table(FILE *excludeFile, HashTable *excludeHashTable
 }
 
 // Function to process a chunk of the file
-void process_chunk(FILE *input, HashTable *hashTable, long start, long end, int pipe_fd) {
-    fprintf(stderr, "in process %ld, %ld, %d\n",  start, end, pipe_fd);
+void process_chunk(FILE *input, HashTable *hashTable, long start, long end, int num_builders, int buidler_pipes[num_builders][2]) {
     
     char line[MAX_LINE_LENGTH];
     long current_line = 0;
@@ -47,11 +37,8 @@ void process_chunk(FILE *input, HashTable *hashTable, long start, long end, int 
             // Remove trailing newline characters
             line[strcspn(line, "\n")] = '\0';
 
-            fprintf(stderr, "Processing line: %s\n\n", line);
-
             char *token = strtok(line, " \t"); // Delimiters: space and tab
 
-            fprintf(stderr, "Processing token: %s\n\n", token);
             while (token != NULL) {
                 // Remove punctuation and convert to lowercase
                 char clean_word[MAX_WORD_LENGTH] = "";
@@ -66,69 +53,58 @@ void process_chunk(FILE *input, HashTable *hashTable, long start, long end, int 
 
                 if (strlen(clean_word) > 1) {
                     if (!search_hash_table(hashTable, clean_word)) {
-                        int builder_index = hash_code(clean_word); // Map word to builder
-                        fprintf(stderr, "Cleaned word: %s with builder index: %d\n", clean_word, builder_index);
-                        // write(builder_pipes[builder_index][1], clean_word, strlen(clean_word) + 1); // Send word to the builder
+                        int builder_index = hashing_builders(clean_word, num_builders); // Map word to builder
+                        fprintf(stderr, "Writing to builder pipe %d: %s\n", buidler_pipes[builder_index][1], clean_word);
+                        write(buidler_pipes[builder_index][1], clean_word, strlen(clean_word) + 1); // Send word to the builder
 
-
-                    } else {
-                        fprintf(stderr, "Word exluded from file: %s\n", clean_word);
                     }
-                    // Send the word to the pipe (or handle it as needed)
-                    // Example: write(pipe_fd, clean_word, strlen(clean_word) + 1);
-                } else {
-                    fprintf(stderr, "Word not a word: %s\n", token);
                 }
 
                 // Get the next word
                 token = strtok(NULL, " \t");
             }
-            // Send the line or results to the parent process via pipe
-            // write(pipe_fd, line, strlen(line) + 1); // Include null terminator
         }
         current_line++;
     }
 }
 
 int main(int argc, char *argv[]) {
-    fprintf(stderr, "splitter started\n");
-    if (argc != 7) {
-        fprintf(stderr, "Usage: %s <input_file_path> <exclude_file_path> <start_offset> <end_offset> <num_of_builders> <pipe_fd>\n", argv[0]);
+    if (argc < 7) {
+        fprintf(stderr, "Usage: %s <input_file_path> <exclude_file_path> <start_offset> <end_offset> <num_of_builders> <pipe_fd> [builder_fds...]\n", argv[0]);
         exit(EXIT_FAILURE);
     }
 
-    fprintf(stderr, "You have entered %d arguments:\n", argc);
-
-    for (int i = 0; i < argc; i++) {
-        fprintf(stderr, "%s\n", argv[i]);
-    }
-
+    // Extract arguments
     char *input_file_path = argv[1];
     char *exclude_file_path = argv[2];
     long start_offset = atol(argv[3]);
     long end_offset = atol(argv[4]);
-    int num_of_builders = atoi(argv[5]);
-    int pipe_fd = atoi(argv[6]);
+    int num_builders = atoi(argv[5]);
+    int pipe_fd = atoi(argv[6]);  
 
-    fprintf(stderr, "%s, %ld, %ld, %d, %d\n", input_file_path, start_offset, end_offset, num_of_builders, pipe_fd);
+    int builder_pipes[num_builders][2];
+    for (int i = 0; i < num_builders; i++) {
+        int pipe_fds[2];
+        if (read(pipe_fd, pipe_fds, sizeof(pipe_fds)) != sizeof(pipe_fds)) {
+            perror("read from splitter pipe failed");
+            exit(EXIT_FAILURE);
+        }
+        builder_pipes[i][0] = pipe_fds[0]; // Read FD
+        builder_pipes[i][1] = pipe_fds[1]; // Write FD
+    }
 
-    // for (int i = 0; i < num_of_builders; i++)
-    // {
-    //     fprintf(stderr ,"BUILDERS_PIPES %d\n", builder_pipes[0][1]);
-    // }
-    
-
+    // Open the input file
     FILE *inputFile = fopen(input_file_path, "r");
     if (!inputFile) {
         perror("Error opening input file");
         exit(EXIT_FAILURE);
     }
 
-    // Open exclusion file
+    // Open the exclusion file
     FILE *excludeFile = fopen(exclude_file_path, "r");
     if (!excludeFile) {
         perror("Error opening exclude file");
-        fclose(excludeFile);
+        fclose(inputFile);
         exit(EXIT_FAILURE);
     }
 
@@ -136,16 +112,13 @@ int main(int argc, char *argv[]) {
     HashTable *excludeHashTable = create_hash_table();
     load_exclusion_to_hash_table(excludeFile, excludeHashTable);
     fclose(excludeFile); // Close exclusion file after loading
-    // print_hash_table(excludeHashTable);
-    // HashNode* node = search_hash_table(excludeHashTable, "is");
-    // fprintf(stderr, "node: %s\n \n", node->word);
 
     // Process the assigned chunk
-    process_chunk(inputFile, excludeHashTable, start_offset, end_offset, pipe_fd);
+    process_chunk(inputFile, excludeHashTable, start_offset, end_offset, num_builders, builder_pipes);
 
     fclose(inputFile);
-    close(pipe_fd); // Close the pipe after writing
+    close(pipe_fd); // Close the splitter's pipe after reading
 
-    free_hash_table(excludeHashTable);
+    free_hash_table(excludeHashTable); // Clean up hash table
     return 0;
 }

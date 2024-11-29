@@ -22,6 +22,8 @@ typedef struct HashTable {
 
 HashTable* create_hash_table();
 
+int hashing_builders(char* word, int num_builders);
+
 int hash_code(char* word);
 
 void insert_to_hash_table(HashTable** hashTable, char* word);

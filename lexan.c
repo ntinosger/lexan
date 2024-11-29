@@ -4,14 +4,13 @@
 #include <sys/wait.h>
 #include <signal.h>
 #include <string.h>
+#include <errno.h>
 
 #include "hashTable.h"
 #include "lexan.h"
-#include "globals.h"
 
-int **builder_pipes;
 
-pid_t *fork_builders(int num_builders) {
+pid_t *fork_builders(int builder_pipes[num_builders][2]) {
     // Allocate memory for storing PIDs of the builder processes
     pid_t *builder_pids = malloc(num_builders * sizeof(pid_t));
     if (!builder_pids) {
@@ -19,27 +18,16 @@ pid_t *fork_builders(int num_builders) {
         exit(EXIT_FAILURE);
     }
 
-    // Declare builder pipes array
-    int builder_pipes[num_builders][2];
-
-    printf("NUM BUILDERS: %d\n", num_builders);
-
     for (int i = 0; i < num_builders; i++) {
-        // Create a pipe for each builder
-        if (pipe(builder_pipes[i]) == -1) {
-            perror("pipe failed");
-            exit(EXIT_FAILURE);
-        }
-
         // Fork a new process for each builder
         pid_t pid = fork();
         if (pid == 0) {
             // Child process (builder)
-            close(builder_pipes[i][0]); // Close read end of the pipe in the builder process
+            close(builder_pipes[i][1]); // Close write end of the pipe in the builder process
 
             // Prepare arguments for execlp
             char pipe_fd_str[10];
-            snprintf(pipe_fd_str, sizeof(pipe_fd_str), "%d", builder_pipes[i][1]);
+            snprintf(pipe_fd_str, sizeof(pipe_fd_str), "%d", builder_pipes[i][0]);
 
             // Execute the builder program with the write-end of the pipe as argument
             execlp("./builder", "builder", pipe_fd_str, NULL);
@@ -53,61 +41,87 @@ pid_t *fork_builders(int num_builders) {
         }
 
         // Parent process (main)
+
         builder_pids[i] = pid; // Store the PID of the builder process
-        close(builder_pipes[i][1]); // Parent closes the write end of the pipe
     }
 
     // Return the array of builder process PIDs
     return builder_pids;
 }
 
-pid_t* fork_splitters(int num_splitters, int num_builders, int splitter_pipes[num_splitters][2], char *input_file, char *exclusion_file, int num_lines) {
+pid_t* fork_splitters(int splitter_pipes[num_splitters][2], int builder_pipes[num_builders][2], char *input_file, char *exclusion_file, int num_lines) {
     int lines_per_splitter = num_lines / num_splitters;
-    
+
     pid_t *pids = malloc(num_splitters * sizeof(pid_t));
     if (!pids) {
         perror("malloc failed");
         exit(EXIT_FAILURE);
     }
-    
+
     for (int i = 0; i < num_splitters; i++) {
         pid_t pid = fork();
         if (pid == 0) {
             // Child process (splitter)
-            close(splitter_pipes[i][0]); // Close read end of the splitter pipe
+            close(splitter_pipes[i][1]); // Close write end of the splitter pipe
 
+            // Compute the line range for this splitter
             int start_line = i * lines_per_splitter;
             int end_line = (i == num_splitters - 1) ? num_lines : start_line + lines_per_splitter;
 
-            char start_line_str[10], end_line_str[10], num_builders_str[10], pipe_fd_str[10];
+            // Prepare arguments for the splitter
+            char start_line_str[10], end_line_str[10], num_builders_str[10], splitter_pipe_fd_str[10];
             snprintf(start_line_str, sizeof(start_line_str), "%d", start_line);
             snprintf(end_line_str, sizeof(end_line_str), "%d", end_line);
             snprintf(num_builders_str, sizeof(num_builders_str), "%d", num_builders);
-            snprintf(pipe_fd_str, sizeof(pipe_fd_str), "%d", splitter_pipes[i][1]);
+            snprintf(splitter_pipe_fd_str, sizeof(splitter_pipe_fd_str), "%d", splitter_pipes[i][0]);
 
-            // int builder_pipe_fds[num_builders];
-            for (int j = 0; j < num_builders; j++) {
-                if (write(splitter_pipes[i][1], &builder_pipes[j][1], sizeof(int)) == -1) {
-                    perror("Failed to write builder pipe descriptor to splitter pipe");
-                    exit(EXIT_FAILURE);
-                }
-            }
-            
-            execlp("./splitter", "splitter", input_file, exclusion_file, start_line_str, end_line_str, num_builders_str, pipe_fd_str, NULL);
-            perror("execlp failed");
+            // Build the argument list for execlp
+            char *args[8];
+            args[0] = "splitter";
+            args[1] = input_file;
+            args[2] = exclusion_file;
+            args[3] = start_line_str;
+            args[4] = end_line_str;
+            args[5] = num_builders_str;
+            args[6] = splitter_pipe_fd_str;
+            args[7] = NULL;
+
+            // Execute the splitter program
+            execvp("./splitter", args);
+
+            perror("execvp failed for splitter");
             exit(EXIT_FAILURE);
         } else if (pid < 0) {
             perror("fork failed");
             exit(EXIT_FAILURE);
+        } else {
+
+            pids[i] = pid; // Store the PID of the splitter process
+
+            for (int j = 0; j < num_builders; j++) {
+                int pipe_fds[2] = {builder_pipes[j][0], builder_pipes[j][1]};
+                if (write(splitter_pipes[i][1], pipe_fds, sizeof(pipe_fds)) == -1) {
+                    perror("write to splitter failed");
+                    exit(EXIT_FAILURE);
+                }
+            }
+            close(splitter_pipes[i][1]);
         }
-        pids[i] = pid; // Store the PID of the splitter process
-        close(splitter_pipes[i][1]); // Parent closes the write end of the pipe
+
+        // Parent process (root)
+
+        close(splitter_pipes[i][1]); // Parent closes the write end of the splitter pipe
     }
+
     return pids;
 }
 
 int main(int argc, char *argv[]) {
-    int num_splitters = 0, num_builders = 0, top_k = 0;
+    splitters_done = 0;
+    builders_ready = 0;
+    num_splitters = 0;
+    num_builders = 0;  
+    int top_k = 0;
     char *input_file = NULL, *exclusion_file = NULL, *output_file = NULL;
 
     // Parse command-line arguments
@@ -134,29 +148,24 @@ int main(int argc, char *argv[]) {
 
     // Allocate and initialize pipes
     int splitter_pipes[num_splitters][2];
-    builder_pipes = malloc(num_builders * sizeof(int **));
-    if (!builder_pipes) {
-        perror("malloc failed");
-        exit(EXIT_FAILURE);
-    }
+    int builder_pipes[num_builders][2];
 
     for (int i = 0; i < num_builders; i++) {
-        builder_pipes[i] = malloc(2 * sizeof(int));
-        if (!builder_pipes[i] || pipe(builder_pipes[i]) == -1) {
-            perror("pipe or malloc failed");
+        if (pipe(builder_pipes[i]) == -1) {
+            perror("builder pipe");
             exit(EXIT_FAILURE);
         }
     }
 
     for (int i = 0; i < num_splitters; i++) {
         if (pipe(splitter_pipes[i]) == -1) {
-            perror("pipe");
+            perror("splitter pipe");
             exit(EXIT_FAILURE);
         }
     }
 
     // Fork builders
-    // pid_t *builder_pids = fork_builders(num_builders);
+    builder_pids = fork_builders(builder_pipes);    
 
     // Calculate number of lines in input file
     FILE *input = fopen(input_file, "r");
@@ -173,27 +182,20 @@ int main(int argc, char *argv[]) {
     fclose(input);
 
     // Fork splitters
-    pid_t* splitter_pids = fork_splitters(num_splitters, num_builders, splitter_pipes, input_file, exclusion_file, num_lines);
+    splitter_pids = fork_splitters(splitter_pipes, builder_pipes, input_file, exclusion_file, num_lines);
 
     for (int i = 0; i < num_splitters; i++) {
         waitpid(splitter_pids[i], NULL, 0);  // Wait for each splitter to finish
     }
-    fprintf(stderr, "All splitters have finished processing.\n");
+    // printf("All splitters have finished processing.\n");   
 
     // Wait for all builders to finish
-    // for (int i = 0; i < num_builders; i++) {
-    //     if (waitpid(builder_pids[i], NULL, 0) == -1) {
-    //         perror("Error waiting for builder");
-    //     }
-    // }
+    for (int i = 0; i < num_builders; i++) {
+        if (waitpid(builder_pids[i], NULL, 0) == -1) {
+            perror("Error waiting for builder");
+        }
+    }
     // printf("All builders have finished processing.\n");
-
-    // Free allocated memory
-    // free(builder_pids);
-    // for (int i = 0; i < num_builders; i++) {
-    //     free(builder_pipes[i]);
-    // }
-    free(builder_pipes);
 
     return 0;
 }

@@ -11,9 +11,9 @@ SPLITTER_TARGET = splitter
 BUILDER_TARGET = builder
 
 # Object files for each executable
-LEXAN_OBJS = lexan.o hashTable.o globals.o
-SPLITTER_OBJS = splitter.o hashTable.o globals.o
-BUILDER_OBJS = builder.o hashTable.o globals.o
+LEXAN_OBJS = lexan.o hashTable.o
+SPLITTER_OBJS = splitter.o hashTable.o
+BUILDER_OBJS = builder.o hashTable.o
 
 # Build both executables
 all: $(LEXAN_TARGET) $(SPLITTER_TARGET) $(BUILDER_TARGET)
@@ -39,8 +39,7 @@ clean:
 	$(CC) $(CFLAGS) -c $< -o $@
 
 # Dependencies
-lexan.o: lexan.c lexan.h hashTable.h globals.h
-splitter.o: splitter.c lexan.h hashTable.h globals.h
-builder.o: builder.c lexan.h hashTable.h globals.h
-hashTable.o: hashTable.c hashTable.h globals.h
-globals.o: globals.c globals.h
+lexan.o: lexan.c lexan.h hashTable.h
+splitter.o: splitter.c splitter.h lexan.h hashTable.h
+builder.o: builder.c builder.h lexan.h hashTable.h
+hashTable.o: hashTable.c hashTable.h

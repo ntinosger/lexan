@@ -27,6 +27,18 @@ HashTable* create_hash_table() {
     return newHT;
 }
 
+int hashing_builders(char* word, int num_builders) {
+    int sumAsciiCodes = 0;
+    for (int i = 0; word[i] != '\0'; i++) {
+        sumAsciiCodes += word[i];
+    }
+    if (num_builders <= 0) {
+        return -1;
+    }
+    
+    return sumAsciiCodes % num_builders;
+}
+
 // Hashing function: Generate hash code for the word
 int hash_code(char* word) {
     int sumAsciiCodes = 0;
