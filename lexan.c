@@ -11,7 +11,7 @@
 
 
 pid_t *fork_builders(int builder_pipes[num_builders][2]) {
-    // Allocate memory for storing PIDs of the builder processes
+    // Allocate memory for the PIDs of the builder processes
     pid_t *builder_pids = malloc(num_builders * sizeof(pid_t));
     if (!builder_pids) {
         perror("malloc failed");
@@ -41,11 +41,10 @@ pid_t *fork_builders(int builder_pipes[num_builders][2]) {
         }
 
         // Parent process (main)
-
         builder_pids[i] = pid; // Store the PID of the builder process
     }
 
-    // Return the array of builder process PIDs
+    // Return the array of builder PIDs
     return builder_pids;
 }
 
@@ -98,6 +97,7 @@ pid_t* fork_splitters(int splitter_pipes[num_splitters][2], int builder_pipes[nu
 
             pids[i] = pid; // Store the PID of the splitter process
 
+            // Write the builder PIDs in the splitter pipes
             for (int j = 0; j < num_builders; j++) {
                 int pipe_fds[2] = {builder_pipes[j][0], builder_pipes[j][1]};
                 if (write(splitter_pipes[i][1], pipe_fds, sizeof(pipe_fds)) == -1) {
@@ -109,7 +109,6 @@ pid_t* fork_splitters(int splitter_pipes[num_splitters][2], int builder_pipes[nu
         }
 
         // Parent process (root)
-
         close(splitter_pipes[i][1]); // Parent closes the write end of the splitter pipe
     }
 
@@ -184,16 +183,15 @@ int main(int argc, char *argv[]) {
     // Fork splitters
     splitter_pids = fork_splitters(splitter_pipes, builder_pipes, input_file, exclusion_file, num_lines);
 
+    // Wait for all splitters to finish
     for (int i = 0; i < num_splitters; i++) {
-        waitpid(splitter_pids[i], NULL, 0);  // Wait for each splitter to finish
+        waitpid(splitter_pids[i], NULL, 0);
     }
     // printf("All splitters have finished processing.\n");   
 
     // Wait for all builders to finish
     for (int i = 0; i < num_builders; i++) {
-        if (waitpid(builder_pids[i], NULL, 0) == -1) {
-            perror("Error waiting for builder");
-        }
+        waitpid(builder_pids[i], NULL, 0);
     }
     // printf("All builders have finished processing.\n");
 

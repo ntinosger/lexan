@@ -8,11 +8,12 @@
 #include "splitter.h"
 #include "lexan.h"
 
+// Function to load excluded words into a hash table for better search
 void load_exclusion_to_hash_table(FILE *excludeFile, HashTable *excludeHashTable) {
     char line[MAX_LINE_LENGTH];
 
     while (fgets(line, sizeof(line), excludeFile)) {
-        // Remove trailing newline characters
+        // Remove newline characters
         line[strcspn(line, "\n")] = '\0';
 
         // Convert the word to lowercase
@@ -34,10 +35,10 @@ void process_chunk(FILE *input, HashTable *hashTable, long start, long end, int 
     // Read and process lines from start to end
     while (current_line < end && fgets(line, sizeof(line), input) != NULL) {
         if (current_line >= start) {    
-            // Remove trailing newline characters
+            // Remove newline characters
             line[strcspn(line, "\n")] = '\0';
 
-            char *token = strtok(line, " \t"); // Delimiters: space and tab
+            char *token = strtok(line, " \t");
 
             while (token != NULL) {
                 // Remove punctuation and convert to lowercase

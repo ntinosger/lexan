@@ -11,7 +11,7 @@
 
 // Process words from the pipe
 void process_words_from_pipe(int pipe_fd) {
-    // Initialize a hash table for storing word frequencies
+    // Initialize hash table for storing word frequencies
     HashTable *wordFrequencyTable = create_hash_table();
 
     // Buffer to store incoming data
@@ -24,7 +24,7 @@ void process_words_from_pipe(int pipe_fd) {
         // Process each word in the buffer
         char *token = strtok(buffer, "\n");
         while (token != NULL) {
-            // Increment the word frequency in the hash table
+            // Add the word frequency in the hash table
             if (strlen(token) > 0) {
                 insert_to_hash_table(&wordFrequencyTable, token);
                 fprintf(stderr, "Received and processed word: %s\n", token);
